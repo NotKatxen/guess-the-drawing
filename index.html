@@ -278,7 +278,25 @@
 
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
+import {
+  getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot,
+  collection, addDoc, deleteDoc, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA9teso8pF9LaTvfgK83QtU7FMCMMRS828",
+  authDomain: "scribble-2c601.firebaseapp.com",
+  projectId: "scribble-2c601",
+  storageBucket: "scribble-2c601.firebasestorage.app",
+  messagingSenderId: "1073543801174",
+  appId: "1:1073543801174:web:9e7b2799f9a18a26938ef7",
+  measurementId: "G-5R77CF1VSM"
+};
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+
 (function(){
 "use strict";
 
@@ -450,19 +468,31 @@ document.getElementById('clearBtn').addEventListener('click', ()=>{
 });
 
 /* ============================================================
-   STORAGE-BACKED "SERVER" LAYER
-   Uses window.storage(shared:true) as a lightweight realtime backend.
-   Each room has: meta, players, strokes, chat, roundState
+   FIREBASE-BACKED "SERVER" LAYER
+   Each room is a doc at rooms/{code} with fields: meta, players,
+   strokes, chat (all stored as JSON-safe plain objects/arrays).
+   Realtime sync via onSnapshot instead of polling.
 ============================================================ */
-async function storGet(key){
-  try{ const r = await window.storage.get(key, true); return r ? JSON.parse(r.value) : null; }
+function roomDocRef(){ return doc(db, 'rooms', roomCode); }
+function indexDocRef(){ return doc(db, 'meta', 'roomIndex'); }
+function globalLbRef(){ return doc(db, 'meta', 'globalLeaderboard'); }
+
+async function storGetRoom(){
+  try{ const snap = await getDoc(roomDocRef()); return snap.exists() ? snap.data() : null; }
+  catch(e){ console.error('Firestore read failed', e); return null; }
+}
+async function storSetRoomField(field, value){
+  try{ await setDoc(roomDocRef(), { [field]: value }, { merge:true }); return true; }
+  catch(e){ console.error('Firestore write failed', e); return false; }
+}
+async function storGetDoc(ref){
+  try{ const snap = await getDoc(ref); return snap.exists() ? snap.data() : null; }
   catch(e){ return null; }
 }
-async function storSet(key, value){
-  try{ await window.storage.set(key, JSON.stringify(value), true); return true; }
-  catch(e){ return false; }
+async function storSetDoc(ref, value){
+  try{ await setDoc(ref, value, { merge:true }); return true; }
+  catch(e){ console.error('Firestore write failed', e); return false; }
 }
-function roomKey(suffix){ return `room:${roomCode}:${suffix}`; }
 
 async function createRoom(){
   roomCode = genRoomCode();
@@ -471,27 +501,32 @@ async function createRoom(){
     round: 1, phase:'lobby', currentDrawerId:null, currentWordMasked:null,
     drawOrder: [], drawOrderIdx: -1, wordChoices: [], timerEnd: 0, revealedWord:null,
   };
-  await storSet(roomKey('meta'), meta);
-  await storSet(roomKey('players'), [playerObj()]);
-  await storSet(roomKey('strokes'), []);
-  await storSet(roomKey('chat'), [{sys:true, text:`${me.name} created the room.`, t:Date.now()}]);
+  await setDoc(roomDocRef(), {
+    meta,
+    players: [playerObj()],
+    strokes: [],
+    chat: [{sys:true, text:`${me.name} created the room.`, t:Date.now()}],
+    secretWord: {word:null},
+  });
   await addToServerList(roomCode);
   return roomCode;
 }
 async function addToServerList(code){
-  const list = (await storGet('room:index')) || [];
-  if(!list.includes(code)) list.push(code);
-  await storSet('room:index', list.slice(-30));
+  const idx = (await storGetDoc(indexDocRef())) || { rooms: [] };
+  const rooms = idx.rooms || [];
+  if(!rooms.includes(code)) rooms.push(code);
+  await storSetDoc(indexDocRef(), { rooms: rooms.slice(-30) });
 }
 async function joinRoom(code){
   code = code.trim().toUpperCase();
-  const meta = await storGet(`room:${code}:meta`);
-  if(!meta) return false;
+  const snap = await getDoc(doc(db,'rooms',code));
+  if(!snap.exists()) return false;
   roomCode = code;
-  const plist = (await storGet(roomKey('players'))) || [];
+  const data = snap.data();
+  const plist = data.players || [];
   if(!plist.find(p=>p.id===me.id)){
     plist.push(playerObj());
-    await storSet(roomKey('players'), plist);
+    await storSetRoomField('players', plist);
     await pushChat({sys:true, text:`${me.name} joined the room.`, t:Date.now()});
   }
   return true;
@@ -500,13 +535,26 @@ function playerObj(){
   return { id: me.id, name: me.name, color: me.color, score: 0, isBot:false, joinedAt: Date.now() };
 }
 async function pushChat(msg){
-  const chat = (await storGet(roomKey('chat'))) || [];
+  const room = await storGetRoom();
+  const chat = (room && room.chat) || [];
   chat.push(msg);
-  await storSet(roomKey('chat'), chat.slice(-100));
+  await storSetRoomField('chat', chat.slice(-100));
 }
 async function pushStrokesToServer(){
   if(isSolo) return;
-  await storSet(roomKey('strokes'), strokes);
+  await storSetRoomField('strokes', strokes);
+}
+
+/* Live listener handle, set up once we know roomCode */
+let unsubscribeRoom = null;
+let latestRoomData = null;
+function subscribeToRoom(){
+  if(unsubscribeRoom) unsubscribeRoom();
+  unsubscribeRoom = onSnapshot(roomDocRef(), (snap)=>{
+    if(!snap.exists()) return;
+    latestRoomData = snap.data();
+    handleRoomUpdate(latestRoomData);
+  }, (err)=>{ console.error('Room listener error', err); });
 }
 
 /* ============================================================
@@ -533,13 +581,16 @@ showTab('host');
 
 async function refreshServerList(){
   const wrap = document.getElementById('serverListWrap');
-  const list = (await storGet('room:index')) || [];
+  const idx = await storGetDoc(indexDocRef());
+  const list = (idx && idx.rooms) || [];
   if(list.length===0){ wrap.innerHTML = '<div class="smallNote">No open servers yet — host one!</div>'; return; }
   let html = '';
   for(const code of list.slice(-12).reverse()){
-    const meta = await storGet(`room:${code}:meta`);
-    if(!meta) continue;
-    const plist = (await storGet(`room:${code}:players`)) || [];
+    const snap = await getDoc(doc(db,'rooms',code));
+    if(!snap.exists()) continue;
+    const data = snap.data();
+    const meta = data.meta;
+    const plist = data.players || [];
     html += `<div class="serverRow" data-code="${code}">🎮 <b>${code}</b> — ${plist.length} player${plist.length===1?'':'s'} — ${meta.phase==='lobby'?'in lobby':'in game'}</div>`;
   }
   wrap.innerHTML = html || '<div class="smallNote">No open servers yet — host one!</div>';
@@ -644,7 +695,8 @@ async function handleGuess(text){
   const isClose = currentWord && !isCorrect && levenshteinClose(guess.toLowerCase(), currentWord.toLowerCase());
   if(isCorrect){
     myGuessedThisRound = true;
-    const meta = await storGet(roomKey('meta'));
+    const room1 = await storGetRoom();
+    const meta = room1 ? room1.meta : {timerEnd:0};
     const timeLeft = Math.max(0, Math.round((meta.timerEnd - Date.now())/1000));
     const pts = 50 + timeLeft*4;
     await bumpScore(me.id, pts);
@@ -671,25 +723,29 @@ function levenshteinClose(a,b){
   return dp[m][n]<=2 && dp[m][n]>0;
 }
 async function bumpScore(playerId, amount){
-  const plist = (await storGet(roomKey('players'))) || [];
+  const room = await storGetRoom();
+  const plist = (room && room.players) || [];
   const p = plist.find(p=>p.id===playerId);
   if(p) p.score += amount;
-  await storSet(roomKey('players'), plist);
+  await storSetRoomField('players', plist);
 }
 
 /* ============================================================
-   MULTIPLAYER GAME LOOP (polling shared storage)
+   MULTIPLAYER GAME LOOP (Firestore realtime listener)
 ============================================================ */
+let hostActionInFlight = false;
+let hostRoundEndTimerSet = false;
 function startMultiplayerLoop(){
-  pollInterval = setInterval(pollRoomState, 900);
-  pollRoomState();
+  subscribeToRoom();
+  // local 1s tick just to refresh the countdown display between snapshots
+  pollInterval = setInterval(()=>{ if(latestRoomData) handleRoomUpdate(latestRoomData, true); }, 1000);
 }
-async function pollRoomState(){
-  const meta = await storGet(roomKey('meta'));
+async function handleRoomUpdate(data, tickOnly){
+  const meta = data.meta;
   if(!meta) return;
-  const plist = (await storGet(roomKey('players'))) || [];
-  const chat = (await storGet(roomKey('chat'))) || [];
-  const svrStrokes = (await storGet(roomKey('strokes'))) || [];
+  const plist = data.players || [];
+  const chat = data.chat || [];
+  const svrStrokes = data.strokes || [];
 
   players = plist;
   totalRounds = meta.totalRounds;
@@ -697,6 +753,7 @@ async function pollRoomState(){
   phase = meta.phase;
   currentDrawerId = meta.currentDrawerId;
   currentWordMasked = meta.currentWordMasked;
+  currentWord = meta.revealedWord || currentWord;
 
   document.getElementById('roundDisplay').textContent = roundNum;
   document.getElementById('roundTotalDisplay').textContent = totalRounds;
@@ -732,16 +789,22 @@ async function pollRoomState(){
     } else {
       document.getElementById('wordBanner').textContent = `Guess the word: ${currentWordMasked||''}`;
     }
-    if(amHost && timeLeft<=0){
+    if(amHost && timeLeft<=0 && !hostActionInFlight){
+      hostActionInFlight = true;
       await endRound(meta, plist, 'time');
+      hostActionInFlight = false;
     }
   } else if(phase==='roundend'){
     showRoundEndOverlay(meta.revealedWord);
     document.getElementById('timerDisplay').textContent = '--';
-    if(amHost){
+    if(amHost && !hostRoundEndTimerSet){
+      hostRoundEndTimerSet = true;
       setTimeout(async ()=>{
-        const freshMeta = await storGet(roomKey('meta'));
-        if(freshMeta && freshMeta.phase==='roundend') await advanceTurn(freshMeta, plist);
+        hostRoundEndTimerSet = false;
+        const room2 = await storGetRoom();
+        const freshMeta = room2 ? room2.meta : null;
+        const freshPlist = room2 ? room2.players : plist;
+        if(freshMeta && freshMeta.phase==='roundend') await advanceTurn(freshMeta, freshPlist);
       }, 3500);
     }
   } else if(phase==='gameover'){
@@ -764,11 +827,12 @@ function showHostStartControl(){
     btn.style.fontSize='12px';
     btn.addEventListener('click', async ()=>{
       btn.disabled=true;
-      const meta = await storGet(roomKey('meta'));
-      const plist = await storGet(roomKey('players'));
+      const room = await storGetRoom();
+      const meta = room.meta;
+      const plist = room.players;
       meta.drawOrder = shuffledIds(plist);
       meta.drawOrderIdx = -1;
-      await storSet(roomKey('meta'), meta);
+      await storSetRoomField('meta', meta);
       await advanceTurn(meta, plist);
     });
     banner.appendChild(btn);
@@ -788,7 +852,7 @@ async function advanceTurn(meta, plist){
   }
   if(meta.round > meta.totalRounds){
     meta.phase = 'gameover';
-    await storSet(roomKey('meta'), meta);
+    await storSetRoomField('meta', meta);
     return;
   }
   const drawerId = meta.drawOrder[meta.drawOrderIdx];
@@ -797,18 +861,19 @@ async function advanceTurn(meta, plist){
   meta.wordChoices = [pick(WORDS), pick(WORDS), pick(WORDS)];
   meta.currentWordMasked = null;
   meta.timerEnd = Date.now() + 15000; // 15s to choose
-  await storSet(roomKey('meta'), meta);
-  await storSet(roomKey('strokes'), []);
+  await storSetRoomField('meta', meta);
+  await storSetRoomField('strokes', []);
   strokes = [];
   roundGuessOrder = [];
   myGuessedThisRound = false;
   // reset guessed flags
   for(const p of plist) p.guessedThisRound = false;
-  await storSet(roomKey('players'), plist);
+  await storSetRoomField('players', plist);
 
   // auto pick after 15s if not chosen
   setTimeout(async ()=>{
-    const freshMeta = await storGet(roomKey('meta'));
+    const room3 = await storGetRoom();
+    const freshMeta = room3 ? room3.meta : null;
     if(freshMeta && freshMeta.phase==='choosing' && freshMeta.currentDrawerId===drawerId){
       await chooseWord(freshMeta.wordChoices[0], freshMeta);
     }
@@ -826,8 +891,8 @@ function showWordChoiceOverlay(choices){
     b.className='primary';
     b.textContent = w;
     b.addEventListener('click', async ()=>{
-      const meta = await storGet(roomKey('meta'));
-      await chooseWord(w, meta);
+      const room = await storGetRoom();
+      await chooseWord(w, room.meta);
     });
     wrap.appendChild(b);
   });
@@ -837,31 +902,16 @@ function hideWordChoiceOverlay(){ document.getElementById('wordChoiceOverlay').s
 async function chooseWord(word, meta){
   meta.phase = 'drawing';
   meta.timerEnd = Date.now() + (meta.turnTime*1000);
-  meta.revealedWord = word;
-  await storSet(roomKey('meta'), meta);
-  // store actual word privately in a room field only drawer reads via meta (simplified: store plainly, masked shown to others)
-  const secret = { word };
-  await storSet(roomKey('secretWord'), secret);
+  meta.revealedWord = word;      // full word, only shown to the drawer client-side
+  meta.currentWordMasked = maskWord(word);
+  await storSetRoomField('meta', meta);
   currentWord = word;
   hideWordChoiceOverlay();
 }
-
-// poll for masked word display + drawer's own word
-setInterval(async ()=>{
-  if(isSolo || !roomCode) return;
-  const meta = await storGet(roomKey('meta'));
-  if(!meta) return;
-  if(meta.phase==='drawing'){
-    const secret = await storGet(roomKey('secretWord'));
-    if(secret && secret.word){
-      if(currentDrawerId===me.id){ currentWord = secret.word; }
-      if(meta.currentWordMasked !== maskWord(secret.word)){
-        meta.currentWordMasked = maskWord(secret.word);
-        await storSet(roomKey('meta'), meta);
-      }
-    }
-  }
-}, 1200);
+/* Note: revealedWord is technically readable by any client with the doc,
+   but the UI only ever displays it to the current drawer or after round end
+   (matching classic draw-and-guess UX). Lock down with Firestore rules /
+   a callable function if you need server-enforced word secrecy. */
 
 function renderChat(chat){
   const log = document.getElementById('chatLog');
@@ -890,19 +940,13 @@ function renderPlayerList(){
 }
 
 async function checkAllGuessed(){
-  const meta = await storGet(roomKey('meta'));
-  const plist = await storGet(roomKey('players'));
-  if(!meta || meta.phase!=='drawing') return;
-  // in a lightweight polling model, just let timer expire naturally; checkAllGuessed is best-effort early end via host
-  const amHost = plist.length>0 && plist[0].id===me.id;
-  if(amHost){
-    // if all non-drawers have guessed (tracked client-side loosely), end early - simplified: skip, rely on timer
-  }
+  // Reserved for early-end-when-everyone-has-guessed logic.
+  // Currently the round simply runs out the clock (handled in handleRoomUpdate).
 }
 
 async function endRound(meta, plist, reason){
   meta.phase = 'roundend';
-  await storSet(roomKey('meta'), meta);
+  await storSetRoomField('meta', meta);
 }
 
 function showRoundEndOverlay(word){
@@ -1109,14 +1153,16 @@ function soloGameOver(){
 async function saveToGlobalLeaderboard(winner){
   if(!winner) return;
   try{
-    const lb = (await storGet('global:leaderboard')) || [];
+    const cur = (await storGetDoc(globalLbRef())) || { entries: [] };
+    const lb = cur.entries || [];
     lb.push({name:winner.name, score:winner.score, t:Date.now()});
     lb.sort((a,b)=>b.score-a.score);
-    await storSet('global:leaderboard', lb.slice(0,25));
-  }catch(e){}
+    await storSetDoc(globalLbRef(), { entries: lb.slice(0,25) });
+  }catch(e){ console.error('Failed to save global leaderboard', e); }
 }
 document.getElementById('showGlobalLbBtn').addEventListener('click', async ()=>{
-  const lb = (await storGet('global:leaderboard')) || [];
+  const cur = await storGetDoc(globalLbRef());
+  const lb = (cur && cur.entries) || [];
   const wrap = document.getElementById('finalLbList');
   document.querySelector('#leaderboardScreen h2').textContent = '🏆 Global Leaderboard';
   wrap.innerHTML = lb.length ? lb.slice(0,10).map((p,i)=>`
@@ -1135,6 +1181,8 @@ function readNameColorSafe(){
   me.id = uid();
 }
 resizeCanvas();
+
+})(); // close inner IIFE
 </script>
 </body>
 </html>

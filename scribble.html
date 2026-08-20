@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Scribbl — Draw & Guess</title>
+<style>
+  :root{
+    --ink: #1c1830;
+    --paper: #fbf6ea;
+    --paper2: #f2ead7;
+    --accent: #ff5d5d;
+    --accent2: #4f7cff;
+    --accent3: #38b06a;
+    --line: #d8cdb0;
+    --shadow: 4px 4px 0 rgba(28,24,48,0.9);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:var(--paper);color:var(--ink);font-family:'Chalkboard SE','Comic Sans MS',ui-rounded,'Segoe UI',sans-serif;overflow:hidden;}
+  #app{position:relative;width:100vw;height:100vh;display:flex;flex-direction:column;}
+
+  h1,h2,h3{font-family:'Marker Felt','Segoe Print','Comic Sans MS',cursive;margin:0;}
+  button{
+    font-family:inherit;font-weight:700;cursor:pointer;border:3px solid var(--ink);
+    background:var(--paper);color:var(--ink);border-radius:10px;padding:10px 16px;
+    box-shadow:var(--shadow);transition:transform .08s;
+  }
+  button:hover{transform:translate(-1px,-1px);}
+  button:active{transform:translate(2px,2px);box-shadow:1px 1px 0 rgba(28,24,48,0.9);}
+  button.primary{background:var(--accent);color:#fff;}
+  button.blue{background:var(--accent2);color:#fff;}
+  button.green{background:var(--accent3);color:#fff;}
+  button:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:var(--shadow);}
+  input, select{
+    font-family:inherit;border:3px solid var(--ink);border-radius:8px;padding:8px 10px;
+    background:#fff;color:var(--ink);font-size:14px;
+  }
+
+  /* ---------- Landing screen ---------- */
+  #landing{
+    flex:1;display:flex;align-items:center;justify-content:center;
+    background:
+      radial-gradient(circle at 15% 20%, #ffe9b8 0, transparent 40%),
+      radial-gradient(circle at 85% 80%, #c9e8ff 0, transparent 40%),
+      var(--paper);
+  }
+  .landingCard{
+    background:var(--paper2);border:4px solid var(--ink);border-radius:20px;
+    box-shadow:8px 8px 0 rgba(28,24,48,0.9);
+    padding:34px 40px;max-width:480px;width:92vw;text-align:center;
+  }
+  .landingCard h1{font-size:46px;letter-spacing:1px;color:var(--accent);
+    text-shadow:3px 3px 0 var(--ink);margin-bottom:4px;}
+  .landingCard .sub{font-size:13px;color:#6b6480;margin-bottom:20px;}
+  .pencilRow{display:flex;justify-content:center;gap:6px;font-size:26px;margin-bottom:10px;}
+  .nameRow{display:flex;gap:8px;margin:14px 0;}
+  .nameRow input{flex:1;}
+  .tabRow{display:flex;gap:8px;margin:18px 0 10px;}
+  .tabRow button{flex:1;}
+  .tabPane{display:none;text-align:left;}
+  .tabPane.active{display:block;}
+  .codeInputRow{display:flex;gap:8px;margin-top:10px;}
+  .codeInputRow input{flex:1;text-transform:uppercase;letter-spacing:3px;text-align:center;font-weight:700;}
+  .smallNote{font-size:11.5px;color:#8b83a0;margin-top:8px;}
+  .serverListWrap{max-height:150px;overflow-y:auto;border:2px dashed var(--line);border-radius:10px;padding:6px;margin-top:8px;}
+  .serverRow{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer;font-size:12.5px;}
+  .serverRow:hover{background:#fff2d5;}
+  .serverRow b{color:var(--accent2);}
+
+  /* ---------- Game screen ---------- */
+  #gameScreen{display:none;flex:1;flex-direction:column;min-height:0;}
+  #topbar{
+    display:flex;align-items:center;gap:12px;padding:8px 16px;background:var(--ink);color:#fff;
+    flex-wrap:wrap;
+  }
+  #topbar .roomCode{background:#fff;color:var(--ink);border-radius:8px;padding:4px 10px;font-weight:700;letter-spacing:2px;}
+  #topbar .pill{background:rgba(255,255,255,0.12);border-radius:20px;padding:4px 12px;font-size:12.5px;display:flex;gap:6px;align-items:center;}
+  #timerPill{background:var(--accent);font-weight:700;}
+  #topbar .spacer{flex:1;}
+  #wordBanner{
+    text-align:center;padding:6px;font-size:14px;font-weight:700;background:var(--paper2);
+    border-bottom:2px solid var(--line);letter-spacing:2px;
+  }
+
+  #mainArea{flex:1;display:flex;min-height:0;}
+  #canvasWrap{flex:1;display:flex;flex-direction:column;background:var(--paper2);padding:12px;min-width:0;}
+  #canvasBox{
+    flex:1;position:relative;background:#fff;border:4px solid var(--ink);border-radius:14px;
+    box-shadow:var(--shadow);overflow:hidden;min-height:0;
+  }
+  #drawCanvas{width:100%;height:100%;touch-action:none;cursor:crosshair;display:block;}
+  #toolbar{display:flex;gap:8px;align-items:center;padding:10px 2px 0;flex-wrap:wrap;}
+  #toolbar .colorSwatch{width:26px;height:26px;border-radius:50%;border:3px solid var(--ink);cursor:pointer;}
+  #toolbar .colorSwatch.selected{outline:3px solid var(--accent2);outline-offset:2px;}
+  #brushRange{width:90px;}
+  #toolbar .divider{width:2px;height:26px;background:var(--line);}
+
+  #sidePanel{width:280px;flex:0 0 auto;display:flex;flex-direction:column;background:#fff;border-left:4px solid var(--ink);min-width:0;}
+  #playerListWrap{padding:10px;border-bottom:3px solid var(--line);max-height:38%;overflow-y:auto;}
+  #playerListWrap h3{font-size:13px;color:var(--accent2);margin-bottom:6px;}
+  .playerRow{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px;font-size:13px;}
+  .playerRow.me{background:#fff2d5;}
+  .playerRow .avatar{width:22px;height:22px;border-radius:50%;flex:0 0 auto;}
+  .playerRow .pname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .playerRow .pscore{font-weight:700;color:var(--accent3);}
+  .playerRow .crown{font-size:13px;}
+  .playerRow .drawingTag{font-size:10px;background:var(--accent);color:#fff;padding:1px 6px;border-radius:8px;}
+  .playerRow .correctTag{font-size:10px;background:var(--accent3);color:#fff;padding:1px 6px;border-radius:8px;}
+
+  #chatWrap{flex:1;display:flex;flex-direction:column;min-height:0;padding:10px;}
+  #chatWrap h3{font-size:13px;color:var(--accent2);margin-bottom:6px;}
+  #chatLog{flex:1;overflow-y:auto;font-size:12.5px;display:flex;flex-direction:column;gap:4px;padding-right:4px;}
+  #chatLog .msg{padding:4px 8px;border-radius:8px;background:var(--paper2);}
+  #chatLog .msg.correct{background:#dff5e4;color:#1b7a3f;font-weight:700;}
+  #chatLog .msg.system{background:transparent;color:#9188a3;font-style:italic;text-align:center;}
+  #chatLog .msg.close{background:#fff2d5;color:#8a6d1a;}
+  #chatForm{display:flex;gap:6px;margin-top:8px;}
+  #chatInput{flex:1;}
+
+  #wordChoiceOverlay{
+    position:absolute;inset:0;background:rgba(28,24,48,0.85);display:none;
+    align-items:center;justify-content:center;z-index:20;flex-direction:column;gap:16px;color:#fff;
+  }
+  #wordChoiceOverlay .choices{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;}
+  #wordChoiceOverlay button{font-size:18px;padding:14px 22px;}
+
+  #roundEndOverlay{
+    position:absolute;inset:0;background:rgba(28,24,48,0.88);display:none;
+    align-items:center;justify-content:center;z-index:20;color:#fff;text-align:center;
+  }
+  #roundEndOverlay .card{background:var(--paper);color:var(--ink);border:4px solid var(--ink);border-radius:16px;padding:24px 30px;box-shadow:var(--shadow);max-width:420px;}
+
+  #leaderboardScreen{
+    position:absolute;inset:0;background:rgba(28,24,48,0.92);display:none;
+    align-items:center;justify-content:center;z-index:30;
+  }
+  #leaderboardScreen .card{
+    background:var(--paper);border:4px solid var(--ink);border-radius:18px;padding:30px 36px;
+    box-shadow:var(--shadow);max-width:420px;width:90vw;text-align:center;color:var(--ink);
+  }
+  .lbRow{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;font-size:15px;margin:4px 0;}
+  .lbRow:nth-child(1){background:#fff2c2;}
+  .lbRow:nth-child(2){background:#eaeaea;}
+  .lbRow:nth-child(3){background:#f3d9b9;}
+  .lbRank{width:22px;font-weight:700;}
+  .lbName{flex:1;text-align:left;}
+  .lbScore{font-weight:700;color:var(--accent3);}
+
+  ::-webkit-scrollbar{width:7px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+
+  @media (max-width:760px){
+    #mainArea{flex-direction:column;}
+    #sidePanel{width:100%;border-left:none;border-top:4px solid var(--ink);max-height:44vh;}
+    #playerListWrap{max-height:110px;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ===================== LANDING ===================== -->
+  <div id="landing">
+    <div class="landingCard">
+      <div class="pencilRow">✏️🎨🖍️</div>
+      <h1>Scribbl</h1>
+      <div class="sub">Draw. Guess. Score points. Beat your friends (or the bot).</div>
+
+      <div class="nameRow">
+        <input id="nameInput" placeholder="Pick a nickname" maxlength="16">
+        <input id="colorPick" type="color" value="#ff5d5d" style="width:46px;padding:2px;">
+      </div>
+
+      <div class="tabRow">
+        <button class="blue" id="tabHostBtn">Host a Server</button>
+        <button class="green" id="tabJoinBtn">Join a Server</button>
+        <button id="tabSoloBtn">Solo vs Bot</button>
+      </div>
+
+      <div class="tabPane" id="hostPane">
+        <p style="font-size:12.5px;">Create a room and get a shareable code. Send it to friends so they can join your game.</p>
+        <label style="font-size:12px;">Rounds: <select id="roundsSelect"><option>3</option><option selected>5</option><option>8</option></select>
+        &nbsp; Turn time: <select id="turnTimeSelect"><option>60</option><option selected>80</option><option>100</option></select>s</label>
+        <br><br>
+        <button class="primary" id="createServerBtn" style="width:100%;">🏠 Create Server</button>
+      </div>
+
+      <div class="tabPane" id="joinPane">
+        <p style="font-size:12.5px;">Enter the 5-letter code a friend shared with you.</p>
+        <div class="codeInputRow">
+          <input id="joinCodeInput" maxlength="5" placeholder="CODE">
+          <button class="primary" id="joinServerBtn">Join</button>
+        </div>
+        <div class="smallNote">Open servers right now:</div>
+        <div class="serverListWrap" id="serverListWrap"><div class="smallNote">Loading…</div></div>
+      </div>
+
+      <div class="tabPane" id="soloPane">
+        <p style="font-size:12.5px;">Practice against a bot that draws and guesses instantly. No code needed.</p>
+        <button class="primary" id="startSoloBtn" style="width:100%;">🤖 Play vs Bot</button>
+      </div>
+
+      <div style="margin-top:16px;">
+        <button id="showGlobalLbBtn" style="font-size:11.5px;padding:6px 12px;">🏆 Global Leaderboard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== GAME SCREEN ===================== -->
+  <div id="gameScreen">
+    <div id="topbar">
+      <div class="pill">Room <span class="roomCode" id="roomCodeDisplay">SOLO</span></div>
+      <button id="copyCodeBtn" style="padding:5px 10px;font-size:11.5px;">📋 Copy Code</button>
+      <div class="pill">Round <span id="roundDisplay">1</span>/<span id="roundTotalDisplay">5</span></div>
+      <div class="pill" id="timerPill">⏱ <span id="timerDisplay">80</span>s</div>
+      <div class="spacer"></div>
+      <button id="leaveBtn" style="padding:5px 10px;font-size:11.5px;">🚪 Leave</button>
+    </div>
+    <div id="wordBanner">Waiting for players…</div>
+
+    <div id="mainArea">
+      <div id="canvasWrap">
+        <div id="canvasBox">
+          <canvas id="drawCanvas"></canvas>
+          <div id="wordChoiceOverlay">
+            <h2>Choose a word to draw</h2>
+            <div class="choices" id="wordChoices"></div>
+          </div>
+          <div id="roundEndOverlay">
+            <div class="card">
+              <h2 id="roundEndTitle">Round over!</h2>
+              <p id="roundEndBody"></p>
+              <button class="primary" id="roundEndContinueBtn">Continue</button>
+            </div>
+          </div>
+        </div>
+        <div id="toolbar">
+          <div class="colorSwatch selected" style="background:#1c1830" data-color="#1c1830"></div>
+          <div class="colorSwatch" style="background:#ff5d5d" data-color="#ff5d5d"></div>
+          <div class="colorSwatch" style="background:#4f7cff" data-color="#4f7cff"></div>
+          <div class="colorSwatch" style="background:#38b06a" data-color="#38b06a"></div>
+          <div class="colorSwatch" style="background:#ffb020" data-color="#ffb020"></div>
+          <div class="colorSwatch" style="background:#c95dff" data-color="#c95dff"></div>
+          <div class="colorSwatch" style="background:#ffffff;border-color:#c9c2ab;" data-color="#ffffff"></div>
+          <div class="divider"></div>
+          <span style="font-size:12px;">Size</span>
+          <input type="range" id="brushRange" min="2" max="28" value="6">
+          <div class="divider"></div>
+          <button id="undoBtn" style="padding:6px 10px;font-size:12px;">↩ Undo</button>
+          <button id="clearBtn" style="padding:6px 10px;font-size:12px;">🗑 Clear</button>
+        </div>
+      </div>
+
+      <div id="sidePanel">
+        <div id="playerListWrap">
+          <h3>👥 Players</h3>
+          <div id="playerList"></div>
+        </div>
+        <div id="chatWrap">
+          <h3>💬 Guess here</h3>
+          <div id="chatLog"></div>
+          <form id="chatForm">
+            <input id="chatInput" placeholder="Type your guess…" autocomplete="off">
+            <button class="primary" type="submit" style="padding:8px 14px;">Send</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== FINAL LEADERBOARD ===================== -->
+  <div id="leaderboardScreen">
+    <div class="card">
+      <h2>🏆 Final Results</h2>
+      <div id="finalLbList"></div>
+      <button class="primary" id="backToLandingBtn" style="width:100%;margin-top:16px;">Back to Menu</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   WORD LIST
+============================================================ */
+const WORDS = ["apple","banana","house","car","tree","sun","moon","star","fish","cat","dog",
+"elephant","guitar","piano","robot","rocket","pizza","burger","castle","dragon","wizard",
+"umbrella","bicycle","airplane","mountain","river","ocean","island","volcano","rainbow",
+"snowman","balloon","butterfly","spider","crown","sword","shield","ghost","pumpkin","cactus",
+"clock","glasses","hat","shoe","key","lamp","chair","table","door","window","book","pencil",
+"camera","phone","computer","television","train","boat","bridge","lighthouse","windmill",
+"skateboard","surfboard","tent","campfire","penguin","lion","tiger","monkey","zebra","giraffe",
+"whale","shark","octopus","crab","snail","bee","ant","owl","eagle","parrot","frog","turtle",
+"ice cream","cupcake","donut","sandwich","taco","sushi","popcorn","cookie","cheese","egg",
+"volcano eruption","waterfall","desert","forest","snowflake","lightning","tornado","earthquake"];
+
+/* ============================================================
+   STATE
+============================================================ */
+let me = { id: null, name: '', color: '#ff5d5d' };
+let mode = null;           // 'server' | 'solo'
+let roomCode = null;
+let isSolo = false;
+let players = [];          // {id,name,color,score,isBot,isDrawing,guessedThisRound}
+let currentDrawerId = null;
+let currentWord = null;
+let currentWordMasked = null;
+let roundNum = 1, totalRounds = 5, turnTime = 80;
+let phase = 'lobby';        // lobby, choosing, drawing, roundend, gameover
+let timerVal = 0;
+let timerInterval = null;
+let strokes = [];           // full stroke history for redraw {points:[{x,y}], color, size}
+let currentStroke = null;
+let lastSyncedStrokeCount = 0;
+let pollInterval = null;
+let botTimers = [];
+let myGuessedThisRound = false;
+let roundGuessOrder = [];   // order in which players guessed correctly (for scoring)
+
+const canvas = document.getElementById('drawCanvas');
+const cctx = canvas.getContext('2d');
+
+/* ============================================================
+   UTIL
+============================================================ */
+function uid(){ return 'p_' + Math.random().toString(36).slice(2,10); }
+function ri(a,b){ return Math.floor(a + Math.random()*(b-a+1)); }
+function pick(arr){ return arr[ri(0,arr.length-1)]; }
+function genRoomCode(){
+  const letters='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s=''; for(let i=0;i<5;i++) s+=letters[ri(0,letters.length-1)];
+  return s;
+}
+function escapeHtml(str){
+  const d = document.createElement('div'); d.textContent = str; return d.innerHTML;
+}
+function maskWord(word){
+  return word.split('').map(c=> c===' ' ? '  ' : '_ ').join('');
+}
+
+/* ============================================================
+   CANVAS SETUP
+============================================================ */
+function resizeCanvas(){
+  const box = document.getElementById('canvasBox');
+  const rect = box.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = rect.width*ratio;
+  canvas.height = rect.height*ratio;
+  canvas.style.width = rect.width+'px';
+  canvas.style.height = rect.height+'px';
+  cctx.setTransform(ratio,0,0,ratio,0,0);
+  redrawAll();
+}
+window.addEventListener('resize', resizeCanvas);
+
+function redrawAll(){
+  const box = document.getElementById('canvasBox');
+  const rect = box.getBoundingClientRect();
+  cctx.fillStyle = '#ffffff';
+  cctx.fillRect(0,0,rect.width,rect.height);
+  for(const s of strokes) drawStroke(s);
+  if(currentStroke) drawStroke(currentStroke);
+}
+function drawStroke(s){
+  if(!s.points || s.points.length<1) return;
+  cctx.strokeStyle = s.color;
+  cctx.lineWidth = s.size;
+  cctx.lineCap = 'round';
+  cctx.lineJoin = 'round';
+  cctx.beginPath();
+  if(s.points.length===1){
+    cctx.arc(s.points[0].x, s.points[0].y, s.size/2, 0, Math.PI*2);
+    cctx.fillStyle = s.color;
+    cctx.fill();
+    return;
+  }
+  cctx.moveTo(s.points[0].x, s.points[0].y);
+  for(let i=1;i<s.points.length;i++) cctx.lineTo(s.points[i].x, s.points[i].y);
+  cctx.stroke();
+}
+
+let drawColor = '#1c1830';
+let brushSize = 6;
+let drawing = false;
+
+function canDraw(){
+  return phase==='drawing' && currentDrawerId===me.id;
+}
+function getCanvasPos(e){
+  const rect = canvas.getBoundingClientRect();
+  const cx = (e.touches? e.touches[0].clientX : e.clientX) - rect.left;
+  const cy = (e.touches? e.touches[0].clientY : e.clientY) - rect.top;
+  return {x:cx, y:cy};
+}
+canvas.addEventListener('mousedown', startDraw);
+canvas.addEventListener('touchstart', startDraw, {passive:false});
+window.addEventListener('mousemove', moveDraw);
+canvas.addEventListener('touchmove', moveDraw, {passive:false});
+window.addEventListener('mouseup', endDraw);
+canvas.addEventListener('touchend', endDraw);
+
+function startDraw(e){
+  if(!canDraw()) return;
+  e.preventDefault();
+  drawing = true;
+  const p = getCanvasPos(e);
+  currentStroke = {color:drawColor, size:brushSize, points:[p]};
+  redrawAll();
+}
+function moveDraw(e){
+  if(!drawing || !canDraw()) return;
+  e.preventDefault();
+  const p = getCanvasPos(e);
+  currentStroke.points.push(p);
+  redrawAll();
+}
+function endDraw(e){
+  if(!drawing) return;
+  drawing = false;
+  if(currentStroke){
+    strokes.push(currentStroke);
+    currentStroke = null;
+    pushStrokesToServer();
+  }
+  redrawAll();
+}
+
+document.querySelectorAll('.colorSwatch').forEach(sw=>{
+  sw.addEventListener('click', ()=>{
+    document.querySelectorAll('.colorSwatch').forEach(s=>s.classList.remove('selected'));
+    sw.classList.add('selected');
+    drawColor = sw.dataset.color;
+  });
+});
+document.getElementById('brushRange').addEventListener('input', (e)=>{ brushSize = Number(e.target.value); });
+document.getElementById('undoBtn').addEventListener('click', ()=>{
+  if(!canDraw()) return;
+  strokes.pop();
+  redrawAll();
+  pushStrokesToServer();
+});
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  if(!canDraw()) return;
+  strokes = [];
+  redrawAll();
+  pushStrokesToServer();
+});
+
+/* ============================================================
+   STORAGE-BACKED "SERVER" LAYER
+   Uses window.storage(shared:true) as a lightweight realtime backend.
+   Each room has: meta, players, strokes, chat, roundState
+============================================================ */
+async function storGet(key){
+  try{ const r = await window.storage.get(key, true); return r ? JSON.parse(r.value) : null; }
+  catch(e){ return null; }
+}
+async function storSet(key, value){
+  try{ await window.storage.set(key, JSON.stringify(value), true); return true; }
+  catch(e){ return false; }
+}
+function roomKey(suffix){ return `room:${roomCode}:${suffix}`; }
+
+async function createRoom(){
+  roomCode = genRoomCode();
+  const meta = {
+    hostId: me.id, totalRounds, turnTime, createdAt: Date.now(),
+    round: 1, phase:'lobby', currentDrawerId:null, currentWordMasked:null,
+    drawOrder: [], drawOrderIdx: -1, wordChoices: [], timerEnd: 0, revealedWord:null,
+  };
+  await storSet(roomKey('meta'), meta);
+  await storSet(roomKey('players'), [playerObj()]);
+  await storSet(roomKey('strokes'), []);
+  await storSet(roomKey('chat'), [{sys:true, text:`${me.name} created the room.`, t:Date.now()}]);
+  await addToServerList(roomCode);
+  return roomCode;
+}
+async function addToServerList(code){
+  const list = (await storGet('room:index')) || [];
+  if(!list.includes(code)) list.push(code);
+  await storSet('room:index', list.slice(-30));
+}
+async function joinRoom(code){
+  code = code.trim().toUpperCase();
+  const meta = await storGet(`room:${code}:meta`);
+  if(!meta) return false;
+  roomCode = code;
+  const plist = (await storGet(roomKey('players'))) || [];
+  if(!plist.find(p=>p.id===me.id)){
+    plist.push(playerObj());
+    await storSet(roomKey('players'), plist);
+    await pushChat({sys:true, text:`${me.name} joined the room.`, t:Date.now()});
+  }
+  return true;
+}
+function playerObj(){
+  return { id: me.id, name: me.name, color: me.color, score: 0, isBot:false, joinedAt: Date.now() };
+}
+async function pushChat(msg){
+  const chat = (await storGet(roomKey('chat'))) || [];
+  chat.push(msg);
+  await storSet(roomKey('chat'), chat.slice(-100));
+}
+async function pushStrokesToServer(){
+  if(isSolo) return;
+  await storSet(roomKey('strokes'), strokes);
+}
+
+/* ============================================================
+   LANDING SCREEN LOGIC
+============================================================ */
+const tabHostBtn = document.getElementById('tabHostBtn');
+const tabJoinBtn = document.getElementById('tabJoinBtn');
+const tabSoloBtn = document.getElementById('tabSoloBtn');
+const hostPane = document.getElementById('hostPane');
+const joinPane = document.getElementById('joinPane');
+const soloPane = document.getElementById('soloPane');
+
+function showTab(which){
+  [hostPane,joinPane,soloPane].forEach(p=>p.classList.remove('active'));
+  [tabHostBtn,tabJoinBtn,tabSoloBtn].forEach(b=>b.classList.remove('primary'));
+  if(which==='host'){ hostPane.classList.add('active'); tabHostBtn.classList.add('primary'); refreshServerList(); }
+  if(which==='join'){ joinPane.classList.add('active'); tabJoinBtn.classList.add('primary'); refreshServerList(); }
+  if(which==='solo'){ soloPane.classList.add('active'); tabSoloBtn.classList.add('primary'); }
+}
+tabHostBtn.addEventListener('click', ()=>showTab('host'));
+tabJoinBtn.addEventListener('click', ()=>showTab('join'));
+tabSoloBtn.addEventListener('click', ()=>showTab('solo'));
+showTab('host');
+
+async function refreshServerList(){
+  const wrap = document.getElementById('serverListWrap');
+  const list = (await storGet('room:index')) || [];
+  if(list.length===0){ wrap.innerHTML = '<div class="smallNote">No open servers yet — host one!</div>'; return; }
+  let html = '';
+  for(const code of list.slice(-12).reverse()){
+    const meta = await storGet(`room:${code}:meta`);
+    if(!meta) continue;
+    const plist = (await storGet(`room:${code}:players`)) || [];
+    html += `<div class="serverRow" data-code="${code}">🎮 <b>${code}</b> — ${plist.length} player${plist.length===1?'':'s'} — ${meta.phase==='lobby'?'in lobby':'in game'}</div>`;
+  }
+  wrap.innerHTML = html || '<div class="smallNote">No open servers yet — host one!</div>';
+  wrap.querySelectorAll('.serverRow').forEach(row=>{
+    row.addEventListener('click', ()=>{
+      document.getElementById('joinCodeInput').value = row.dataset.code;
+    });
+  });
+}
+
+function readNameColor(){
+  const nm = document.getElementById('nameInput').value.trim();
+  me.name = nm || ('Player' + ri(100,999));
+  me.color = document.getElementById('colorPick').value;
+  me.id = me.id || uid();
+}
+
+document.getElementById('createServerBtn').addEventListener('click', async ()=>{
+  readNameColor();
+  totalRounds = Number(document.getElementById('roundsSelect').value);
+  turnTime = Number(document.getElementById('turnTimeSelect').value);
+  isSolo = false;
+  const btn = document.getElementById('createServerBtn');
+  btn.disabled = true; btn.textContent = 'Creating…';
+  const code = await createRoom();
+  btn.disabled = false; btn.textContent = '🏠 Create Server';
+  enterGameScreen();
+  startMultiplayerLoop();
+});
+
+document.getElementById('joinServerBtn').addEventListener('click', async ()=>{
+  readNameColor();
+  const code = document.getElementById('joinCodeInput').value.trim();
+  if(!code){ return; }
+  const btn = document.getElementById('joinServerBtn');
+  btn.disabled = true; btn.textContent = '…';
+  const ok = await joinRoom(code);
+  btn.disabled = false; btn.textContent = 'Join';
+  if(!ok){ alert('No server found with that code.'); return; }
+  isSolo = false;
+  totalRounds = null; // pulled from meta
+  enterGameScreen();
+  startMultiplayerLoop();
+});
+
+document.getElementById('startSoloBtn').addEventListener('click', ()=>{
+  readNameColor();
+  isSolo = true;
+  roomCode = null;
+  totalRounds = 5; turnTime = 70;
+  enterGameScreen();
+  startSoloGame();
+});
+
+document.getElementById('leaveBtn').addEventListener('click', ()=>{
+  location.reload();
+});
+document.getElementById('copyCodeBtn').addEventListener('click', ()=>{
+  if(!roomCode) return;
+  navigator.clipboard?.writeText(roomCode).catch(()=>{});
+  const btn = document.getElementById('copyCodeBtn');
+  const old = btn.textContent; btn.textContent='✅ Copied!';
+  setTimeout(()=>btn.textContent=old, 1200);
+});
+
+function enterGameScreen(){
+  document.getElementById('landing').style.display='none';
+  document.getElementById('gameScreen').style.display='flex';
+  document.getElementById('roomCodeDisplay').textContent = isSolo ? 'SOLO' : roomCode;
+  document.getElementById('copyCodeBtn').style.display = isSolo ? 'none' : 'inline-block';
+  document.getElementById('roundTotalDisplay').textContent = totalRounds || 5;
+  requestAnimationFrame(resizeCanvas);
+}
+
+/* ============================================================
+   CHAT FORM (guessing)
+============================================================ */
+document.getElementById('chatForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value='';
+  await handleGuess(text);
+});
+
+async function handleGuess(text){
+  const guess = text.trim();
+  if(isSolo){
+    processSoloGuess(guess);
+    return;
+  }
+  if(currentDrawerId===me.id){
+    await pushChat({name:me.name, color:me.color, text, t:Date.now()});
+    return;
+  }
+  if(myGuessedThisRound || phase!=='drawing'){
+    await pushChat({name:me.name, color:me.color, text, t:Date.now()});
+    return;
+  }
+  const isCorrect = currentWord && guess.toLowerCase() === currentWord.toLowerCase();
+  const isClose = currentWord && !isCorrect && levenshteinClose(guess.toLowerCase(), currentWord.toLowerCase());
+  if(isCorrect){
+    myGuessedThisRound = true;
+    const meta = await storGet(roomKey('meta'));
+    const timeLeft = Math.max(0, Math.round((meta.timerEnd - Date.now())/1000));
+    const pts = 50 + timeLeft*4;
+    await bumpScore(me.id, pts);
+    await pushChat({sys:true, text:`${me.name} guessed the word!`, t:Date.now(), correct:true, forId:me.id});
+    // bonus to drawer
+    const drawerBonus = 15;
+    await bumpScore(currentDrawerId, drawerBonus);
+    checkAllGuessed();
+  } else if(isClose){
+    await pushChat({name:me.name, color:me.color, text, t:Date.now(), close:true});
+  } else {
+    await pushChat({name:me.name, color:me.color, text, t:Date.now()});
+  }
+}
+function levenshteinClose(a,b){
+  if(Math.abs(a.length-b.length)>2) return false;
+  let m = a.length, n = b.length;
+  const dp = Array.from({length:m+1},()=>new Array(n+1).fill(0));
+  for(let i=0;i<=m;i++) dp[i][0]=i;
+  for(let j=0;j<=n;j++) dp[0][j]=j;
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++){
+    dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j-1],dp[i-1][j],dp[i][j-1]);
+  }
+  return dp[m][n]<=2 && dp[m][n]>0;
+}
+async function bumpScore(playerId, amount){
+  const plist = (await storGet(roomKey('players'))) || [];
+  const p = plist.find(p=>p.id===playerId);
+  if(p) p.score += amount;
+  await storSet(roomKey('players'), plist);
+}
+
+/* ============================================================
+   MULTIPLAYER GAME LOOP (polling shared storage)
+============================================================ */
+function startMultiplayerLoop(){
+  pollInterval = setInterval(pollRoomState, 900);
+  pollRoomState();
+}
+async function pollRoomState(){
+  const meta = await storGet(roomKey('meta'));
+  if(!meta) return;
+  const plist = (await storGet(roomKey('players'))) || [];
+  const chat = (await storGet(roomKey('chat'))) || [];
+  const svrStrokes = (await storGet(roomKey('strokes'))) || [];
+
+  players = plist;
+  totalRounds = meta.totalRounds;
+  roundNum = meta.round;
+  phase = meta.phase;
+  currentDrawerId = meta.currentDrawerId;
+  currentWordMasked = meta.currentWordMasked;
+
+  document.getElementById('roundDisplay').textContent = roundNum;
+  document.getElementById('roundTotalDisplay').textContent = totalRounds;
+
+  renderPlayerList();
+  renderChat(chat);
+
+  if(JSON.stringify(svrStrokes)!==JSON.stringify(strokes) && currentDrawerId!==me.id){
+    strokes = svrStrokes;
+    redrawAll();
+  }
+
+  const amHost = plist.length>0 && plist[0].id===me.id;
+
+  if(phase==='lobby'){
+    document.getElementById('wordBanner').textContent = `Waiting for players… (${plist.length} joined)`;
+    document.getElementById('timerDisplay').textContent = '--';
+    if(amHost && plist.length>=1){
+      showHostStartControl();
+    }
+  } else if(phase==='choosing'){
+    document.getElementById('wordBanner').textContent = currentDrawerId===me.id ? 'Pick a word to draw!' : `${nameOf(currentDrawerId)} is choosing a word…`;
+    if(currentDrawerId===me.id) showWordChoiceOverlay(meta.wordChoices);
+    else hideWordChoiceOverlay();
+    document.getElementById('timerDisplay').textContent = '--';
+  } else if(phase==='drawing'){
+    hideWordChoiceOverlay();
+    hideRoundEndOverlay();
+    const timeLeft = Math.max(0, Math.round((meta.timerEnd - Date.now())/1000));
+    document.getElementById('timerDisplay').textContent = timeLeft;
+    if(currentDrawerId===me.id){
+      document.getElementById('wordBanner').textContent = `Draw: ${currentWord||''}`;
+    } else {
+      document.getElementById('wordBanner').textContent = `Guess the word: ${currentWordMasked||''}`;
+    }
+    if(amHost && timeLeft<=0){
+      await endRound(meta, plist, 'time');
+    }
+  } else if(phase==='roundend'){
+    showRoundEndOverlay(meta.revealedWord);
+    document.getElementById('timerDisplay').textContent = '--';
+    if(amHost){
+      setTimeout(async ()=>{
+        const freshMeta = await storGet(roomKey('meta'));
+        if(freshMeta && freshMeta.phase==='roundend') await advanceTurn(freshMeta, plist);
+      }, 3500);
+    }
+  } else if(phase==='gameover'){
+    showFinalLeaderboard(plist);
+  }
+}
+
+function nameOf(id){ const p = players.find(p=>p.id===id); return p? p.name : '???'; }
+
+function showHostStartControl(){
+  const banner = document.getElementById('wordBanner');
+  if(!document.getElementById('hostStartBtn')){
+    banner.innerHTML = `Waiting for players… (${players.length} joined) `;
+    const btn = document.createElement('button');
+    btn.id='hostStartBtn';
+    btn.textContent='▶ Start Game';
+    btn.className='primary';
+    btn.style.marginLeft='10px';
+    btn.style.padding='4px 12px';
+    btn.style.fontSize='12px';
+    btn.addEventListener('click', async ()=>{
+      btn.disabled=true;
+      const meta = await storGet(roomKey('meta'));
+      const plist = await storGet(roomKey('players'));
+      meta.drawOrder = shuffledIds(plist);
+      meta.drawOrderIdx = -1;
+      await storSet(roomKey('meta'), meta);
+      await advanceTurn(meta, plist);
+    });
+    banner.appendChild(btn);
+  }
+}
+function shuffledIds(plist){
+  const ids = plist.map(p=>p.id);
+  for(let i=ids.length-1;i>0;i--){ const j=ri(0,i); [ids[i],ids[j]]=[ids[j],ids[i]]; }
+  return ids;
+}
+
+async function advanceTurn(meta, plist){
+  meta.drawOrderIdx++;
+  if(meta.drawOrderIdx >= meta.drawOrder.length){
+    meta.drawOrderIdx = 0;
+    meta.round++;
+  }
+  if(meta.round > meta.totalRounds){
+    meta.phase = 'gameover';
+    await storSet(roomKey('meta'), meta);
+    return;
+  }
+  const drawerId = meta.drawOrder[meta.drawOrderIdx];
+  meta.currentDrawerId = drawerId;
+  meta.phase = 'choosing';
+  meta.wordChoices = [pick(WORDS), pick(WORDS), pick(WORDS)];
+  meta.currentWordMasked = null;
+  meta.timerEnd = Date.now() + 15000; // 15s to choose
+  await storSet(roomKey('meta'), meta);
+  await storSet(roomKey('strokes'), []);
+  strokes = [];
+  roundGuessOrder = [];
+  myGuessedThisRound = false;
+  // reset guessed flags
+  for(const p of plist) p.guessedThisRound = false;
+  await storSet(roomKey('players'), plist);
+
+  // auto pick after 15s if not chosen
+  setTimeout(async ()=>{
+    const freshMeta = await storGet(roomKey('meta'));
+    if(freshMeta && freshMeta.phase==='choosing' && freshMeta.currentDrawerId===drawerId){
+      await chooseWord(freshMeta.wordChoices[0], freshMeta);
+    }
+  }, 15500);
+}
+
+document.getElementById('wordChoices');
+function showWordChoiceOverlay(choices){
+  const ov = document.getElementById('wordChoiceOverlay');
+  ov.style.display='flex';
+  const wrap = document.getElementById('wordChoices');
+  wrap.innerHTML='';
+  (choices||[]).forEach(w=>{
+    const b = document.createElement('button');
+    b.className='primary';
+    b.textContent = w;
+    b.addEventListener('click', async ()=>{
+      const meta = await storGet(roomKey('meta'));
+      await chooseWord(w, meta);
+    });
+    wrap.appendChild(b);
+  });
+}
+function hideWordChoiceOverlay(){ document.getElementById('wordChoiceOverlay').style.display='none'; }
+
+async function chooseWord(word, meta){
+  meta.phase = 'drawing';
+  meta.timerEnd = Date.now() + (meta.turnTime*1000);
+  meta.revealedWord = word;
+  await storSet(roomKey('meta'), meta);
+  // store actual word privately in a room field only drawer reads via meta (simplified: store plainly, masked shown to others)
+  const secret = { word };
+  await storSet(roomKey('secretWord'), secret);
+  currentWord = word;
+  hideWordChoiceOverlay();
+}
+
+// poll for masked word display + drawer's own word
+setInterval(async ()=>{
+  if(isSolo || !roomCode) return;
+  const meta = await storGet(roomKey('meta'));
+  if(!meta) return;
+  if(meta.phase==='drawing'){
+    const secret = await storGet(roomKey('secretWord'));
+    if(secret && secret.word){
+      if(currentDrawerId===me.id){ currentWord = secret.word; }
+      if(meta.currentWordMasked !== maskWord(secret.word)){
+        meta.currentWordMasked = maskWord(secret.word);
+        await storSet(roomKey('meta'), meta);
+      }
+    }
+  }
+}, 1200);
+
+function renderChat(chat){
+  const log = document.getElementById('chatLog');
+  const wasAtBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+  log.innerHTML = chat.map(m=>{
+    if(m.sys) return `<div class="msg system">${m.correct? '✅ ':''}${escapeHtml(m.text)}</div>`;
+    const cls = m.close ? 'close' : '';
+    return `<div class="msg ${cls}"><b style="color:${m.color}">${escapeHtml(m.name)}:</b> ${escapeHtml(m.text)}</div>`;
+  }).join('');
+  if(wasAtBottom) log.scrollTop = log.scrollHeight;
+}
+
+function renderPlayerList(){
+  const wrap = document.getElementById('playerList');
+  const sorted = [...players].sort((a,b)=>b.score-a.score);
+  wrap.innerHTML = sorted.map((p,i)=>{
+    const isMe = p.id===me.id;
+    const isDrawing = p.id===currentDrawerId;
+    return `<div class="playerRow ${isMe?'me':''}">
+      <div class="avatar" style="background:${p.color}"></div>
+      <span class="pname">${i===0 && p.score>0?'<span class=\"crown\">👑</span> ':''}${escapeHtml(p.name)}${p.isBot?' 🤖':''}</span>
+      ${isDrawing?'<span class="drawingTag">✏️ drawing</span>':''}
+      <span class="pscore">${p.score}</span>
+    </div>`;
+  }).join('');
+}
+
+async function checkAllGuessed(){
+  const meta = await storGet(roomKey('meta'));
+  const plist = await storGet(roomKey('players'));
+  if(!meta || meta.phase!=='drawing') return;
+  // in a lightweight polling model, just let timer expire naturally; checkAllGuessed is best-effort early end via host
+  const amHost = plist.length>0 && plist[0].id===me.id;
+  if(amHost){
+    // if all non-drawers have guessed (tracked client-side loosely), end early - simplified: skip, rely on timer
+  }
+}
+
+async function endRound(meta, plist, reason){
+  meta.phase = 'roundend';
+  await storSet(roomKey('meta'), meta);
+}
+
+function showRoundEndOverlay(word){
+  const ov = document.getElementById('roundEndOverlay');
+  ov.style.display='flex';
+  document.getElementById('roundEndTitle').textContent = "Time's up!";
+  document.getElementById('roundEndBody').innerHTML = `The word was <b>${escapeHtml(word||'')}</b>`;
+}
+function hideRoundEndOverlay(){ document.getElementById('roundEndOverlay').style.display='none'; }
+document.getElementById('roundEndContinueBtn').addEventListener('click', hideRoundEndOverlay);
+
+function showFinalLeaderboard(plist){
+  clearInterval(pollInterval);
+  const sorted = [...plist].sort((a,b)=>b.score-a.score);
+  const wrap = document.getElementById('finalLbList');
+  wrap.innerHTML = sorted.map((p,i)=>`
+    <div class="lbRow"><span class="lbRank">${i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)}</span>
+    <span class="lbName">${escapeHtml(p.name)}${p.isBot?' 🤖':''}</span>
+    <span class="lbScore">${p.score} pts</span></div>`).join('');
+  document.getElementById('leaderboardScreen').style.display='flex';
+  saveToGlobalLeaderboard(sorted[0]);
+}
+document.getElementById('backToLandingBtn').addEventListener('click', ()=>location.reload());
+
+/* ============================================================
+   SOLO VS BOT MODE
+============================================================ */
+let soloBot = { id:'bot_1', name:'Sketchy Bot', color:'#4f7cff', score:0, isBot:true };
+let soloState = {};
+
+function startSoloGame(){
+  players = [ {id:me.id,name:me.name,color:me.color,score:0,isBot:false}, soloBot ];
+  roundNum = 1; totalRounds = 5;
+  renderPlayerList();
+  soloNextTurn(true);
+}
+function soloIsMyTurn(){ return currentDrawerId===me.id; }
+
+function soloNextTurn(first){
+  if(!first){
+    roundNum++;
+    if(roundNum>totalRounds){ soloGameOver(); return; }
+  }
+  document.getElementById('roundDisplay').textContent = roundNum;
+  // alternate drawer
+  currentDrawerId = (currentDrawerId===me.id) ? soloBot.id : me.id;
+  if(!currentDrawerId) currentDrawerId = me.id;
+  myGuessedThisRound = false;
+  strokes = []; redrawAll();
+  clearChatLog();
+  addSystemChat(`Round ${roundNum} — ${nameOf2(currentDrawerId)} is drawing!`);
+
+  if(soloIsMyTurn()){
+    phase = 'choosing';
+    const choices = [pick(WORDS),pick(WORDS),pick(WORDS)];
+    showWordChoiceOverlaySolo(choices);
+    document.getElementById('wordBanner').textContent = 'Pick a word to draw!';
+  } else {
+    // bot picks instantly
+    currentWord = pick(WORDS);
+    currentWordMasked = maskWord(currentWord);
+    startSoloDrawPhase();
+    simulateBotDrawing();
+  }
+}
+function nameOf2(id){ return id===me.id ? me.name : soloBot.name; }
+
+function showWordChoiceOverlaySolo(choices){
+  const ov = document.getElementById('wordChoiceOverlay');
+  ov.style.display='flex';
+  const wrap = document.getElementById('wordChoices');
+  wrap.innerHTML='';
+  choices.forEach(w=>{
+    const b=document.createElement('button');
+    b.className='primary'; b.textContent=w;
+    b.addEventListener('click', ()=>{
+      currentWord = w; currentWordMasked = maskWord(w);
+      hideWordChoiceOverlay();
+      startSoloDrawPhase();
+    });
+    wrap.appendChild(b);
+  });
+}
+
+function startSoloDrawPhase(){
+  phase = 'drawing';
+  timerVal = turnTime;
+  document.getElementById('wordBanner').textContent = soloIsMyTurn() ? `Draw: ${currentWord}` : `Guess the word: ${currentWordMasked}`;
+  renderPlayerList();
+  clearInterval(timerInterval);
+  timerInterval = setInterval(()=>{
+    timerVal--;
+    document.getElementById('timerDisplay').textContent = timerVal;
+    if(timerVal<=0){
+      clearInterval(timerInterval);
+      soloRoundEnd();
+    }
+  }, 1000);
+  document.getElementById('timerDisplay').textContent = timerVal;
+}
+
+function simulateBotDrawing(){
+  // bot "draws" a simple recognizable-ish doodle: random blobs/lines that vaguely fill canvas over time
+  let steps = 0;
+  const maxSteps = 14;
+  const box = document.getElementById('canvasBox').getBoundingClientRect();
+  const iv = setInterval(()=>{
+    if(phase!=='drawing' || !currentDrawerId || currentDrawerId===me.id){ clearInterval(iv); return; }
+    steps++;
+    const cx = box.width/2 + ri(-60,60);
+    const cy = box.height/2 + ri(-60,60);
+    const stroke = {color: pick(['#1c1830','#ff5d5d','#4f7cff','#38b06a']), size: ri(4,10), points:[]};
+    const len = ri(3,8);
+    let px=cx, py=cy;
+    for(let i=0;i<len;i++){
+      px += ri(-20,20); py += ri(-20,20);
+      stroke.points.push({x:clamp(px,0,box.width),y:clamp(py,0,box.height)});
+    }
+    strokes.push(stroke);
+    redrawAll();
+    if(steps>=maxSteps) clearInterval(iv);
+  }, turnTime*1000/16);
+
+  // bot reveals via chat hint partway + game auto-resolves: after some delay, "everyone" (i.e. we assume) needs to guess manually
+}
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
+function processSoloGuess(text){
+  if(soloIsMyTurn()){
+    addChatMsg(me.name, me.color, text);
+    return;
+  }
+  if(myGuessedThisRound){ addChatMsg(me.name, me.color, text); return; }
+  const isCorrect = currentWord && text.trim().toLowerCase()===currentWord.toLowerCase();
+  const isClose = currentWord && !isCorrect && levenshteinClose(text.trim().toLowerCase(), currentWord.toLowerCase());
+  if(isCorrect){
+    myGuessedThisRound = true;
+    const pts = 50 + timerVal*4;
+    addScore(me.id, pts);
+    addScore(currentDrawerId, 15);
+    addSystemChat(`${me.name} guessed the word! (+${pts})`, true);
+    renderPlayerList();
+    clearInterval(timerInterval);
+    setTimeout(soloRoundEnd, 900);
+  } else if(isClose){
+    addChatMsg(me.name, me.color, text, true);
+  } else {
+    addChatMsg(me.name, me.color, text);
+  }
+}
+function addScore(id, amt){
+  const p = players.find(p=>p.id===id);
+  if(p) p.score += amt;
+}
+function soloRoundEnd(){
+  phase='roundend';
+  showRoundEndOverlay(currentWord);
+  if(!soloIsMyTurn() && !myGuessedThisRound){
+    // bot "explains" nothing, just moves on; give bot itself a small score for drawing
+    addScore(currentDrawerId, 10);
+  }
+  if(soloIsMyTurn()){
+    // simulate bot guessing with some probability based on time
+    if(chance(0.7)){
+      const guessTime = ri(5, turnTime-5);
+      addScore(soloBot.id, 50 + (turnTime-guessTime)*4);
+      addSystemChat(`${soloBot.name} guessed the word!`, true);
+    }
+    addScore(me.id, 10); // drawing participation
+  }
+  renderPlayerList();
+  setTimeout(()=>{
+    hideRoundEndOverlay();
+    soloNextTurn(false);
+  }, 3200);
+}
+function chance(p){ return Math.random()<p; }
+
+function clearChatLog(){ document.getElementById('chatLog').innerHTML=''; }
+function addSystemChat(text, correct){
+  const log = document.getElementById('chatLog');
+  const div = document.createElement('div');
+  div.className = 'msg system' + (correct?' correct':'');
+  div.textContent = (correct? '✅ ' : '') + text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+function addChatMsg(name,color,text,close){
+  const log = document.getElementById('chatLog');
+  const div = document.createElement('div');
+  div.className = 'msg' + (close?' close':'');
+  div.innerHTML = `<b style="color:${color}">${escapeHtml(name)}:</b> ${escapeHtml(text)}`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+function soloGameOver(){
+  clearInterval(timerInterval);
+  showFinalLeaderboard(players);
+}
+
+/* ============================================================
+   GLOBAL LEADERBOARD (persisted across sessions, shared)
+============================================================ */
+async function saveToGlobalLeaderboard(winner){
+  if(!winner) return;
+  try{
+    const lb = (await storGet('global:leaderboard')) || [];
+    lb.push({name:winner.name, score:winner.score, t:Date.now()});
+    lb.sort((a,b)=>b.score-a.score);
+    await storSet('global:leaderboard', lb.slice(0,25));
+  }catch(e){}
+}
+document.getElementById('showGlobalLbBtn').addEventListener('click', async ()=>{
+  const lb = (await storGet('global:leaderboard')) || [];
+  const wrap = document.getElementById('finalLbList');
+  document.querySelector('#leaderboardScreen h2').textContent = '🏆 Global Leaderboard';
+  wrap.innerHTML = lb.length ? lb.slice(0,10).map((p,i)=>`
+    <div class="lbRow"><span class="lbRank">${i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)}</span>
+    <span class="lbName">${escapeHtml(p.name)}</span>
+    <span class="lbScore">${p.score} pts</span></div>`).join('') : '<p style="font-size:13px;">No games completed yet. Be the first!</p>';
+  document.getElementById('leaderboardScreen').style.display='flex';
+});
+document.getElementById('backToLandingBtn').addEventListener('click', ()=>{
+  document.querySelector('#leaderboardScreen h2').textContent = '🏆 Final Results';
+});
+
+/* init */
+readNameColorSafe();
+function readNameColorSafe(){
+  me.id = uid();
+}
+resizeCanvas();
+</script>
+</body>
+</html>
